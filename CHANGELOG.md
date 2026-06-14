@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.0 — 2026-06-14
+
+- `patch-hash` subcommand: fills `code_area_hash` (the body SHA-256) into an
+  already-headered image/ELF post-link. Companion to hisi-riscv-rt's
+  `boot-header` feature — flashboot checks the body hash even with secure-verify
+  disabled, so a link-time header needs the hash patched after linking. Handles
+  ELF (finds `.boot_header` + body from PT_LOAD ≥ `0x230300`) and raw bin.
+- Published to crates.io as `hisi-fwpkg` + `hisi-fwpkg-cli` 0.2.0 (first
+  crates.io release of this tool).
+
 ## 0.1.0
 
 Initial release.
