@@ -67,6 +67,13 @@ pub const FLASH_NO_ENCRY_FLAG: u32 = 0x3C78_96E1;
 /// SHA-256 digest length.
 pub const HASH_LEN: usize = 32;
 
+/// Offset of `code_area_len` within the header (code-info area `+0x24`).
+pub const CODE_AREA_LEN_OFF: usize = KEY_AREA_LEN + 0x24; // 0x124
+/// Offset of `code_area_hash[32]` within the header (code-info area `+0x28`).
+pub const CODE_AREA_HASH_OFF: usize = KEY_AREA_LEN + 0x28; // 0x128
+/// Offset of `code_uncompress_len` within the header (code-info area `+0x80`).
+pub const CODE_UNCOMPRESS_LEN_OFF: usize = KEY_AREA_LEN + 0x80; // 0x180
+
 /// Parameters controlling how the app image header is built.
 ///
 /// Defaults match the vendor `liteos_app_bin_ecc.cfg` for a
