@@ -1,0 +1,28 @@
+[package]
+name = "hisi-fwpkg"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Library to build HiSilicon WS63/BS2X application images and fwpkg firmware packages"
+keywords.workspace = true
+categories.workspace = true
+
+[lib]
+name = "hisi_fwpkg"
+path = "src/lib.rs"
+
+[dependencies]
+thiserror.workspace = true
+sha2.workspace = true
+object = { workspace = true, optional = true }
+
+[dev-dependencies]
+sha2.workspace = true
+
+[features]
+default = ["elf"]
+# ELF parsing support (objcopy-equivalent: flatten PT_LOAD segments to a raw image).
+elf = ["dep:object"]

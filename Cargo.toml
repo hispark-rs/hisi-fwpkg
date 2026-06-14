@@ -1,0 +1,24 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/hisi-fwpkg",
+    "crates/hisi-fwpkg-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.74"
+license = "MIT OR Apache-2.0"
+authors = ["hispark-rs contributors"]
+repository = "https://github.com/hispark-rs/hisi-fwpkg"
+description = "Pack HiSilicon WS63/BS2X application images (image header + fwpkg container) from ELF/bin"
+keywords = ["hisilicon", "ws63", "fwpkg", "firmware", "embedded"]
+categories = ["development-tools", "embedded", "command-line-utilities"]
+
+[workspace.dependencies]
+hisi-fwpkg = { version = "0.1.0", path = "crates/hisi-fwpkg" }
+thiserror = "2"
+sha2 = "0.10"
+clap = { version = "4.5", features = ["derive"] }
+object = { version = "0.36", default-features = false, features = ["read_core", "elf", "std"] }

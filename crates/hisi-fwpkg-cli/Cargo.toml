@@ -1,0 +1,19 @@
+[package]
+name = "hisi-fwpkg-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "CLI to pack HiSilicon WS63/BS2X app images and fwpkg packages from ELF/bin"
+keywords.workspace = true
+categories.workspace = true
+
+[[bin]]
+name = "hisi-fwpkg"
+path = "src/main.rs"
+
+[dependencies]
+hisi-fwpkg = { version = "0.1.0", path = "../hisi-fwpkg" }
+clap.workspace = true
