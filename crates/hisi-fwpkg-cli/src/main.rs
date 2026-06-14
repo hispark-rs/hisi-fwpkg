@@ -4,7 +4,7 @@
 use {
     clap::{Parser, Subcommand, ValueEnum},
     hisi_fwpkg::{
-        build_app_image_from_input, pack_app_fwpkg, Chip, PackOptions, PartitionType,
+        build_app_image_from_input, pack_app_fwpkg, patch_hash, Chip, PackOptions, PartitionType,
         IMAGE_HEADER_LEN,
     },
     std::{path::PathBuf, process::ExitCode},
@@ -60,6 +60,21 @@ enum Command {
         #[arg(long, default_value = "app")]
         name: String,
     },
+    /// Patch the body SHA-256 into an already-headered image's `code_area_hash`.
+    ///
+    /// Makes a link-time `boot-header` ELF (or a raw headered bin) bootable:
+    /// computes the SHA-256 of the body and writes it into `code_area_hash`
+    /// (flashboot checks the body hash even with secure-verify disabled). The
+    /// header's `code_area_len` selects how many body bytes are hashed; if it is
+    /// zero, the whole body is hashed and the length fields are filled too.
+    /// Patches in place unless `-o` is given.
+    PatchHash {
+        /// Input ELF (with a `.boot_header` section) or raw headered bin.
+        input: PathBuf,
+        /// Output path (defaults to overwriting `input` in place).
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
 }
 
 fn parse_u32(s: &str) -> Result<u32, String> {
@@ -113,6 +128,16 @@ fn run() -> hisi_fwpkg::Result<()> {
                 name,
                 addr
             );
+        }
+        Command::PatchHash { input, output } => {
+            let bytes = std::fs::read(&input)?;
+            let patched = patch_hash(&bytes)?;
+            let out = output.unwrap_or_else(|| input.clone());
+            std::fs::write(&out, &patched)?;
+            // Echo the patched hash (code_info+0x28) for verification.
+            let hash = hisi_fwpkg::patched_hash(&patched).unwrap_or([0u8; 32]);
+            let hex: String = hash.iter().map(|b| format!("{b:02x}")).collect();
+            eprintln!("patched {} — code_area_hash = {hex}", out.display());
         }
     }
     Ok(())

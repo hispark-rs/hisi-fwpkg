@@ -42,11 +42,17 @@ pub mod image;
 #[cfg(feature = "elf")]
 pub mod elf;
 
+#[cfg(feature = "elf")]
+pub mod patch;
+
 pub use {
     error::{Error, Result},
     fwpkg::{build_fwpkg, Partition, PartitionType},
     image::{build_app_image, build_image_header, ImageOptions, IMAGE_HEADER_LEN},
 };
+
+#[cfg(feature = "elf")]
+pub use patch::{patch_hash, patched_hash};
 
 /// A supported chip family, carrying its flash-layout constants.
 ///
