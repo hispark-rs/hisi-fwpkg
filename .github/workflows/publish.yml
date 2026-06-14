@@ -1,0 +1,46 @@
+name: Publish
+# Publish hisi-fwpkg (lib) + hisi-fwpkg-cli to crates.io. Push a `v*` tag to
+# release; or run manually (Actions tab) — manual runs default to a safe dry run.
+# Requires the repo secret CARGO_REGISTRY_TOKEN.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (package + check, no upload)"
+        type: boolean
+        default: true
+permissions:
+  contents: read
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      # The lib must be published (and indexed) before the cli, which depends on
+      # it by version. Publish in order, retry the cli while crates.io indexes
+      # the new lib version, and treat "already uploaded" as success (idempotent).
+      - name: Publish lib then cli
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          DRY: ${{ (github.event_name == 'workflow_dispatch' && inputs.dry_run) && '--dry-run' || '' }}
+        run: |
+          set -euo pipefail
+          pub() {  # $1 = crate name
+            for i in 1 2 3 4 5 6; do
+              if cargo publish -p "$1" $DRY 2>&1 | tee /tmp/pub.log; then return 0; fi
+              if grep -qiE 'already (exists|been uploaded|uploaded)|is already uploaded' /tmp/pub.log; then
+                echo "$1: already on crates.io — skipping."; return 0
+              fi
+              if grep -qiE 'no matching package|failed to select a version|not found in registry|expected to find' /tmp/pub.log; then
+                echo "$1: dependency not indexed yet — retry $i after 30s…"; sleep 30; continue
+              fi
+              return 1
+            done
+            return 1
+          }
+          pub hisi-fwpkg
+          if [ -z "$DRY" ]; then sleep 30; fi   # let the new lib version index before the cli
+          pub hisi-fwpkg-cli
