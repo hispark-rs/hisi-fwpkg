@@ -15,5 +15,5 @@ name = "hisi-fwpkg"
 path = "src/main.rs"
 
 [dependencies]
-hisi-fwpkg = { version = "0.1.0", path = "../hisi-fwpkg" }
+hisi-fwpkg = { version = "0.2.0", path = "../hisi-fwpkg" }
 clap.workspace = true
