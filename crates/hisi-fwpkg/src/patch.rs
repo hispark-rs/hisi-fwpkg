@@ -88,9 +88,7 @@ fn locate_elf(elf_bytes: &[u8]) -> Result<(usize, Vec<u8>)> {
         }
     }
     let hdr_off = hdr_off.ok_or_else(|| {
-        Error::Elf(
-            "no `.boot_header` section found — build with the `boot-header` feature".into(),
-        )
+        Error::Elf("no `.boot_header` section found — build with the `boot-header` feature".into())
     })?;
     if hdr_off + IMAGE_HEADER_LEN > elf_bytes.len() {
         return Err(Error::Elf(".boot_header section truncated in file".into()));
@@ -365,24 +363,19 @@ mod tests {
         assert_eq!(e.len(), shoff);
 
         // --- section headers (null, .boot_header, .shstrtab) ---
-        let push_shdr = |e: &mut Vec<u8>,
-                         name: u32,
-                         ty: u32,
-                         flags: u32,
-                         addr: u32,
-                         off: u32,
-                         size: u32| {
-            p32(e, name);
-            p32(e, ty);
-            p32(e, flags);
-            p32(e, addr);
-            p32(e, off);
-            p32(e, size);
-            p32(e, 0); // sh_link
-            p32(e, 0); // sh_info
-            p32(e, 1); // sh_addralign
-            p32(e, 0); // sh_entsize
-        };
+        let push_shdr =
+            |e: &mut Vec<u8>, name: u32, ty: u32, flags: u32, addr: u32, off: u32, size: u32| {
+                p32(e, name);
+                p32(e, ty);
+                p32(e, flags);
+                p32(e, addr);
+                p32(e, off);
+                p32(e, size);
+                p32(e, 0); // sh_link
+                p32(e, 0); // sh_info
+                p32(e, 1); // sh_addralign
+                p32(e, 0); // sh_entsize
+            };
         push_shdr(&mut e, 0, 0, 0, 0, 0, 0); // SHT_NULL
         push_shdr(&mut e, 1, 1, 2, 0x230000, hdr_off as u32, hdr.len() as u32); // .boot_header PROGBITS/ALLOC
         push_shdr(&mut e, 14, 3, 0, 0, shstr_off as u32, shstrtab.len() as u32); // .shstrtab STRTAB
@@ -411,7 +404,10 @@ mod tests {
         // re-resolve via the same path patch_hash uses.
         let (hdr_off, _) = locate_elf(&out).unwrap();
         let got = &out[hdr_off + CODE_AREA_HASH_OFF..hdr_off + CODE_AREA_HASH_OFF + HASH_LEN];
-        assert_eq!(got, &expected_hash, "body must be hashed by p_paddr with 0xFF gaps");
+        assert_eq!(
+            got, &expected_hash,
+            "body must be hashed by p_paddr with 0xFF gaps"
+        );
 
         // Guard the guard: the buggy reconstructions (0x00 gaps, or .data missing
         // from its flash position) must NOT collide with the correct hash.
@@ -420,6 +416,10 @@ mod tests {
         assert_ne!(got, &sha256(&zero_gap)[..], "0x00 gap fill must differ");
         let mut no_data = vec![0xFFu8; 0x80];
         no_data[0x00..0x40].fill(0xAA); // .data left as fill (vaddr-misplaced)
-        assert_ne!(got, &sha256(&no_data)[..], "vaddr-misplaced .data must differ");
+        assert_ne!(
+            got,
+            &sha256(&no_data)[..],
+            "vaddr-misplaced .data must differ"
+        );
     }
 }
