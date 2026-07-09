@@ -112,10 +112,31 @@ pub struct PackOptions {
     pub app_name: Option<String>,
 }
 
+const ELF_MAGIC: &[u8] = &[0x7F, b'E', b'L', b'F'];
+
+#[cfg(feature = "elf")]
+fn headered_elf_to_app_image(input: &[u8]) -> Result<Vec<u8>> {
+    let patched = patch_hash(input)?;
+    let (hdr_off, body) = patch::locate_elf(&patched)?;
+    let header = patched
+        .get(hdr_off..hdr_off + IMAGE_HEADER_LEN)
+        .ok_or_else(|| Error::Elf(".boot_header section truncated in file".to_string()))?;
+    let mut image = Vec::with_capacity(IMAGE_HEADER_LEN + body.len());
+    image.extend_from_slice(header);
+    image.extend_from_slice(&body);
+    Ok(image)
+}
+
+#[cfg(not(feature = "elf"))]
+fn headered_elf_to_app_image(_input: &[u8]) -> Result<Vec<u8>> {
+    Err(Error::Elf(
+        "input is ELF but crate built without `elf` feature".into(),
+    ))
+}
+
 /// Detect whether `input` is an ELF (by magic) and flatten it; otherwise treat
 /// it as an already-flat raw binary. Returns the code body to wrap.
 pub fn input_to_body(input: &[u8]) -> Result<Vec<u8>> {
-    const ELF_MAGIC: &[u8] = &[0x7F, b'E', b'L', b'F'];
     if input.starts_with(ELF_MAGIC) {
         #[cfg(feature = "elf")]
         {
@@ -157,7 +178,15 @@ fn is_headered_app_image(input: &[u8]) -> bool {
 /// `hisi-fwpkg image` already produces a FlashBoot-ready image. Feeding that
 /// image back into `hisi-fwpkg pack` must not add a second 0x300-byte header.
 pub fn input_to_app_image(input: &[u8], opts: &PackOptions) -> Result<Vec<u8>> {
-    if is_headered_app_image(input) {
+    if input.starts_with(ELF_MAGIC) {
+        match headered_elf_to_app_image(input) {
+            Ok(image) => Ok(image),
+            Err(Error::Elf(msg)) if msg.contains("no `.boot_header` section found") => {
+                build_app_image_from_input(input, opts)
+            }
+            Err(err) => Err(err),
+        }
+    } else if is_headered_app_image(input) {
         patch_hash(input)
     } else {
         build_app_image_from_input(input, opts)
@@ -172,8 +201,10 @@ pub fn input_to_app_image(input: &[u8], opts: &PackOptions) -> Result<Vec<u8>> {
 /// flash. To produce a full first-flash package, add the vendor boot
 /// partitions with [`build_fwpkg`] directly.
 pub fn pack_app_fwpkg(input: &[u8], chip: Chip, opts: &PackOptions) -> Result<Vec<u8>> {
-    let image = input_to_app_image(input, opts)?;
-    let addr = opts.app_addr.unwrap_or_else(|| chip.app_partition_addr());
+    let image_opts = ImagePlanOptions { pack: opts.clone() };
+    let plan = plan_app_flash(input, chip, &image_opts)?;
+    let image = plan.image_bytes;
+    let addr = plan.base_addr;
     let name = opts.app_name.clone().unwrap_or_else(|| "app".to_string());
     let part = Partition::new(name, image, addr, PartitionType::Normal);
     build_fwpkg(&[part])
