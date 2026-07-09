@@ -132,10 +132,36 @@ pub fn input_to_body(input: &[u8]) -> Result<Vec<u8>> {
     Ok(input.to_vec())
 }
 
-/// Build just the app image (`0x300` header || body) from ELF or raw bin input.
+/// Build just the app image (`0x300` header || body) from ELF or raw body input.
 pub fn build_app_image_from_input(input: &[u8], opts: &PackOptions) -> Result<Vec<u8>> {
     let body = input_to_body(input)?;
     build_app_image(&body, &opts.image)
+}
+
+fn is_headered_app_image(input: &[u8]) -> bool {
+    if input.len() < IMAGE_HEADER_LEN {
+        return false;
+    }
+    let key_id = u32::from_le_bytes(input[0..4].try_into().expect("slice length checked"));
+    let code_id = u32::from_le_bytes(
+        input[0x100..0x104]
+            .try_into()
+            .expect("slice length checked"),
+    );
+
+    key_id == image::APP_KEY_AREA_IMAGE_ID && code_id == image::APP_CODE_INFO_IMAGE_ID
+}
+
+/// Convert ELF/raw/headered input into a complete app image.
+///
+/// `hisi-fwpkg image` already produces a FlashBoot-ready image. Feeding that
+/// image back into `hisi-fwpkg pack` must not add a second 0x300-byte header.
+pub fn input_to_app_image(input: &[u8], opts: &PackOptions) -> Result<Vec<u8>> {
+    if is_headered_app_image(input) {
+        patch_hash(input)
+    } else {
+        build_app_image_from_input(input, opts)
+    }
 }
 
 /// End-to-end: ELF/bin → app image → single-partition fwpkg.
@@ -146,7 +172,7 @@ pub fn build_app_image_from_input(input: &[u8], opts: &PackOptions) -> Result<Ve
 /// flash. To produce a full first-flash package, add the vendor boot
 /// partitions with [`build_fwpkg`] directly.
 pub fn pack_app_fwpkg(input: &[u8], chip: Chip, opts: &PackOptions) -> Result<Vec<u8>> {
-    let image = build_app_image_from_input(input, opts)?;
+    let image = input_to_app_image(input, opts)?;
     let addr = opts.app_addr.unwrap_or_else(|| chip.app_partition_addr());
     let name = opts.app_name.clone().unwrap_or_else(|| "app".to_string());
     let part = Partition::new(name, image, addr, PartitionType::Normal);
@@ -182,5 +208,17 @@ mod tests {
             fwpkg::FWPKG_MAGIC_V1
         );
         assert_eq!(u16::from_le_bytes(pkg[6..8].try_into().unwrap()), 1);
+    }
+
+    #[test]
+    fn pack_app_does_not_double_wrap_headered_image() {
+        let raw = vec![0x55u8; 200];
+        let image = build_app_image_from_input(&raw, &PackOptions::default()).unwrap();
+        let pkg = pack_app_fwpkg(&image, Chip::Ws63, &PackOptions::default()).unwrap();
+        let parsed = fwpkg::Fwpkg::from_bytes(pkg).unwrap();
+        let app = parsed.normal_bins().next().unwrap();
+
+        assert_eq!(app.length as usize, image.len());
+        assert_eq!(parsed.bin_data(app).unwrap(), image.as_slice());
     }
 }
