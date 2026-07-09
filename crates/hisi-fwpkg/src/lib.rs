@@ -1,14 +1,18 @@
 //! `hisi-fwpkg` — build HiSilicon application **images** and **fwpkg** packages.
 //!
-//! This crate turns a compiled program (ELF or raw `.bin`) into the on-flash
+//! This crate turns a compiled program (ELF or raw `.bin`) or vendor `.fwpkg`
+//! into the on-flash
 //! format that a HiSilicon flashboot expects, for chips in the WS63 / BS2X
 //! family. It does two layered jobs:
 //!
-//! 1. [`image`] — wrap raw code in the fixed `0x300`-byte **app image header**
+//! 1. [`plan`] — the canonical flash plan used by transports. It returns the
+//!    complete image bytes, base address, body range, hash, erase range, write
+//!    chunks, and source fwpkg metadata when present.
+//! 2. [`image`] — wrap raw code in the fixed `0x300`-byte **app image header**
 //!    (key area `0x4B0F2D1E` + code-info area `0x4B0F2D2D`, with the real
 //!    SHA-256 of the body). This is what flashboot loads from the app
 //!    partition.
-//! 2. [`fwpkg`] — pack one or more partitions (loaderboot / flashboot / nv /
+//! 3. [`fwpkg`] — pack one or more partitions (loaderboot / flashboot / nv /
 //!    app …) into a **fwpkg V1** container with the partition table + CRC that
 //!    `hisiflash` flashes.
 //!
@@ -38,6 +42,7 @@
 pub mod error;
 pub mod fwpkg;
 pub mod image;
+pub mod plan;
 
 #[cfg(feature = "elf")]
 pub mod elf;
@@ -47,8 +52,14 @@ pub mod patch;
 
 pub use {
     error::{Error, Result},
-    fwpkg::{build_fwpkg, Partition, PartitionType},
+    fwpkg::{
+        build_fwpkg, Fwpkg, FwpkgBinInfo, FwpkgHeader, FwpkgVersion, Partition, PartitionType,
+    },
     image::{build_app_image, build_image_header, ImageOptions, IMAGE_HEADER_LEN},
+    plan::{
+        plan_app_flash, BodyRange, FlashPlan, FlashRange, FwpkgPartitionInfo, FwpkgSourceInfo,
+        ImagePlanOptions, WriteChunk,
+    },
 };
 
 #[cfg(feature = "elf")]
@@ -61,6 +72,8 @@ pub use patch::{patch_hash, patched_hash};
 /// byte is the entry point flashboot jumps to). They are derived from each
 /// chip's vendor partition table.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
 #[non_exhaustive]
 pub enum Chip {
     /// WS63 (Wi-Fi 6 + SLE). App partition at flash `0x230000`.

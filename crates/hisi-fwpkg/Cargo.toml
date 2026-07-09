@@ -18,6 +18,7 @@ path = "src/lib.rs"
 thiserror.workspace = true
 sha2.workspace = true
 object = { workspace = true, optional = true }
+serde = { workspace = true, optional = true }
 
 [dev-dependencies]
 sha2.workspace = true
@@ -26,3 +27,4 @@ sha2.workspace = true
 default = ["elf"]
 # ELF parsing support (objcopy-equivalent: flatten PT_LOAD segments to a raw image).
 elf = ["dep:object"]
+serde = ["dep:serde"]

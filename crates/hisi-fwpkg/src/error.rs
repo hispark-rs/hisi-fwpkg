@@ -25,6 +25,10 @@ pub enum Error {
     #[error("fwpkg must contain at least one partition")]
     EmptyPackage,
 
+    /// The fwpkg bytes are malformed or internally inconsistent.
+    #[error("invalid fwpkg: {0}")]
+    InvalidFwpkg(String),
+
     /// ELF parsing/flattening failed.
     #[error("elf error: {0}")]
     Elf(String),

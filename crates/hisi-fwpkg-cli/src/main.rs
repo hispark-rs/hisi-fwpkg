@@ -4,8 +4,8 @@
 use {
     clap::{Parser, Subcommand, ValueEnum},
     hisi_fwpkg::{
-        build_app_image_from_input, pack_app_fwpkg, patch_hash, Chip, PackOptions, PartitionType,
-        IMAGE_HEADER_LEN,
+        pack_app_fwpkg, patch_hash, plan_app_flash, Chip, ImagePlanOptions, PackOptions,
+        PartitionType, IMAGE_HEADER_LEN,
     },
     std::{path::PathBuf, process::ExitCode},
 };
@@ -42,6 +42,12 @@ enum Command {
         /// Output image path.
         #[arg(short, long)]
         output: PathBuf,
+        /// Target chip (sets the app partition flash address in the plan).
+        #[arg(short, long, value_enum, default_value = "ws63")]
+        chip: ChipArg,
+        /// Override the app partition burn address (hex ok, e.g. 0x230000).
+        #[arg(long, value_parser = parse_u32)]
+        app_addr: Option<u32>,
     },
     /// ELF/bin -> app image -> single-partition fwpkg (app only).
     Pack {
@@ -75,6 +81,28 @@ enum Command {
         #[arg(short, long)]
         output: Option<PathBuf>,
     },
+    /// Print the canonical flash plan and optionally write the planned image.
+    Plan {
+        /// Input ELF, raw body .bin, already-headered image, or fwpkg.
+        input: PathBuf,
+        /// Target chip (sets the app partition flash address).
+        #[arg(short, long, value_enum, default_value = "ws63")]
+        chip: ChipArg,
+        /// Override the app partition burn address (hex ok, e.g. 0x230000).
+        #[arg(long, value_parser = parse_u32)]
+        app_addr: Option<u32>,
+        /// Write the planned complete image to this path.
+        #[arg(long)]
+        image_output: Option<PathBuf>,
+        /// Output format.
+        #[arg(long, value_enum, default_value = "json")]
+        format: PlanFormat,
+    },
+}
+
+#[derive(Copy, Clone, ValueEnum)]
+enum PlanFormat {
+    Json,
 }
 
 fn parse_u32(s: &str) -> Result<u32, String> {
@@ -90,17 +118,29 @@ fn parse_u32(s: &str) -> Result<u32, String> {
 fn run() -> hisi_fwpkg::Result<()> {
     let cli = Cli::parse();
     match cli.command {
-        Command::Image { input, output } => {
+        Command::Image {
+            input,
+            output,
+            chip,
+            app_addr,
+        } => {
             let bytes = std::fs::read(&input)?;
-            let opts = PackOptions::default();
-            let image = build_app_image_from_input(&bytes, &opts)?;
-            std::fs::write(&output, &image)?;
+            let chip: Chip = chip.into();
+            let opts = ImagePlanOptions {
+                pack: PackOptions {
+                    app_addr,
+                    ..Default::default()
+                },
+            };
+            let plan = plan_app_flash(&bytes, chip, &opts)?;
+            std::fs::write(&output, &plan.image_bytes)?;
             eprintln!(
-                "wrote {} ({} bytes: {} header + {} body)",
+                "wrote {} ({} bytes: {} header + {} body) @ 0x{:08X}",
                 output.display(),
-                image.len(),
+                plan.image_len,
                 IMAGE_HEADER_LEN,
-                image.len() - IMAGE_HEADER_LEN
+                plan.image_len as usize - IMAGE_HEADER_LEN,
+                plan.base_addr
             );
         }
         Command::Pack {
@@ -138,6 +178,32 @@ fn run() -> hisi_fwpkg::Result<()> {
             let hash = hisi_fwpkg::patched_hash(&patched).unwrap_or([0u8; 32]);
             let hex: String = hash.iter().map(|b| format!("{b:02x}")).collect();
             eprintln!("patched {} — code_area_hash = {hex}", out.display());
+        }
+        Command::Plan {
+            input,
+            chip,
+            app_addr,
+            image_output,
+            format,
+        } => {
+            let bytes = std::fs::read(&input)?;
+            let chip: Chip = chip.into();
+            let opts = ImagePlanOptions {
+                pack: PackOptions {
+                    app_addr,
+                    ..Default::default()
+                },
+            };
+            let plan = plan_app_flash(&bytes, chip, &opts)?;
+            if let Some(path) = image_output {
+                std::fs::write(&path, &plan.image_bytes)?;
+                eprintln!("wrote planned image {}", path.display());
+            }
+            match format {
+                PlanFormat::Json => {
+                    println!("{}", serde_json::to_string_pretty(&plan).unwrap());
+                }
+            }
         }
     }
     Ok(())

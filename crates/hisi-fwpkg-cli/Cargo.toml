@@ -15,5 +15,6 @@ name = "hisi-fwpkg"
 path = "src/main.rs"
 
 [dependencies]
-hisi-fwpkg = { version = "0.2.0", path = "../hisi-fwpkg" }
+hisi-fwpkg = { workspace = true, features = ["serde"] }
 clap.workspace = true
+serde_json.workspace = true

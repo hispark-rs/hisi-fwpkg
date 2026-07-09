@@ -1,17 +1,19 @@
-//! Post-link **body-hash patching** ("route 2", Part B).
+//! Post-link **body-hash patching** for ELF-based run/test paths.
 //!
 //! With the `hisi-riscv-rt` `boot-header` feature, the linker bakes a complete
 //! `0x300`-byte image header into the ELF at flash `0x230000`, including the
 //! real `code_area_len` (a linker symbol). The one field the linker *cannot*
 //! compute is `code_area_hash` — the SHA-256 of the body — which on-silicon
 //! measurement shows flashboot checks even with secure-verify disabled. This
-//! module fills it post-link, in place, so a `boot-header` ELF (or an
-//! already-headered raw bin) becomes directly bootable.
+//! module fills it post-link, in place. Normal smoke/download flows should use
+//! [`crate::plan::plan_app_flash`] and flash the planned complete binary image;
+//! this module remains for `probe-rs run` / embedded-test paths that need ELF
+//! symbols, test metadata, and semihosting information.
 //!
 //! ```text
 //! cargo build --features hisi-riscv-rt/boot-header   # bakes header + code_area_len
 //! hisi-fwpkg patch-hash <elf>                         # fills code_area_hash
-//! probe-rs download <elf>                             # flash the bootable ELF
+//! probe-rs run <elf>                                  # ELF metadata path
 //! ```
 
 use {
@@ -38,9 +40,9 @@ const ELF_MAGIC: &[u8] = &[0x7F, b'E', b'L', b'F'];
 /// Patch the `code_area_hash` (and, if needed, the length fields) of an
 /// already-headered image so flashboot accepts it.
 ///
-/// `input` is either a `boot-header` **ELF** (preferred — patched in place so
-/// `probe-rs download`/`cargo flash` work directly) or a raw **bin** whose
-/// header sits at offset 0. Returns the patched bytes.
+/// `input` is either a `boot-header` **ELF** or a raw **bin** whose header sits
+/// at offset 0. Returns the patched bytes. For ordinary flashing, prefer
+/// [`crate::plan::plan_app_flash`] so transports write a complete planned image.
 pub fn patch_hash(input: &[u8]) -> Result<Vec<u8>> {
     if input.starts_with(ELF_MAGIC) {
         patch_hash_elf(input)
@@ -68,7 +70,7 @@ pub fn patched_hash(input: &[u8]) -> Option<[u8; HASH_LEN]> {
 /// `(header_file_offset, body)` where `body` is flattened (gaps 0xFF-filled to
 /// match erased flash, so the hash agrees with flashboot's contiguous read),
 /// the same way [`crate::elf::flatten_elf`] / `objcopy -O binary` lay it out.
-fn locate_elf(elf_bytes: &[u8]) -> Result<(usize, Vec<u8>)> {
+pub(crate) fn locate_elf(elf_bytes: &[u8]) -> Result<(usize, Vec<u8>)> {
     let header =
         FileHeader32::<Endianness>::parse(elf_bytes).map_err(|e| Error::Elf(e.to_string()))?;
     let endian = header.endian().map_err(|e| Error::Elf(e.to_string()))?;
