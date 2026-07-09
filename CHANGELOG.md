@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.3.0 — 2026-07-09
+
+### Added
+
+- Added the library-level `FlashPlan` API and `hisi-fwpkg plan` CLI path as the canonical image semantics source for smoke/download tooling. Plans expose the flash base address, image length, body range, code-area length/hash, erase range, write chunks, and optional source fwpkg partition metadata.
+- Added `--image-output` for `plan`, producing the complete flash image that generic downloaders can write with `probe-rs download --binary-format bin --base-address <plan.base_addr>`.
+- Added fwpkg parsing metadata so downstream tools can report partition layout and CRC status through the same parser semantics.
+
+### Changed
+
+- ELF planning now expands `PT_LOAD` segments by physical load address with `0xFF` gaps, matching the flashboot continuous-read hash model.
+- Documented `patch-hash` as the ELF `probe-rs run` / embedded-test exception path; ordinary smoke/download flows should use `plan --image-output`.
+
 ## 0.2.1 — 2026-06-16
 
 ### Fixed
