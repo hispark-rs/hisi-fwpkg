@@ -188,9 +188,11 @@ fn patch_hash_bin(bin: &[u8]) -> Result<Vec<u8>> {
 
 /// Core patch: given a buffer, the header's file offset, and the full body
 /// bytes, read `code_area_len` from the header; the hashed body is its first
-/// `code_area_len` bytes (or the whole body if the header length is 0, in which
-/// case the length + uncompress-length fields are also filled). Writes the
-/// SHA-256 into `code_area_hash`.
+/// `code_area_len` bytes. If the linker-aligned length extends beyond the last
+/// file-backed ELF byte, the tail is hashed as erased flash (`0xFF`), matching
+/// [`crate::plan::FlashPlan`]. A zero header length uses the whole body and also
+/// fills the length + uncompress-length fields. Writes the SHA-256 into
+/// `code_area_hash`.
 fn patch_header(buf: &mut [u8], hdr_off: usize, body: &[u8]) -> Result<()> {
     let len_pos = hdr_off + CODE_AREA_LEN_OFF;
     let code_area_len = u32::from_le_bytes(buf[len_pos..len_pos + 4].try_into().unwrap()) as usize;
@@ -205,17 +207,19 @@ fn patch_header(buf: &mut [u8], hdr_off: usize, body: &[u8]) -> Result<()> {
         buf[unc_pos..unc_pos + 4].copy_from_slice(&len.to_le_bytes());
         body.len()
     } else {
-        if code_area_len > body.len() {
-            return Err(Error::OutOfRange(format!(
-                "code_area_len 0x{code_area_len:X} exceeds body length 0x{:X}",
-                body.len()
-            )));
-        }
         code_area_len
     };
 
     let mut hasher = sha2::Sha256::new();
-    hasher.update(&body[..hashed_len]);
+    let file_backed_len = hashed_len.min(body.len());
+    hasher.update(&body[..file_backed_len]);
+    const ERASED_TAIL: [u8; 64] = [0xFF; 64];
+    let mut remaining = hashed_len - file_backed_len;
+    while remaining != 0 {
+        let chunk_len = remaining.min(ERASED_TAIL.len());
+        hasher.update(&ERASED_TAIL[..chunk_len]);
+        remaining -= chunk_len;
+    }
     let digest = hasher.finalize();
 
     let hash_pos = hdr_off + CODE_AREA_HASH_OFF;
@@ -230,6 +234,23 @@ mod tests {
         crate::image::{build_app_image, ImageOptions, CODE_AREA_LEN_OFF, CODE_UNCOMPRESS_LEN_OFF},
         sha2::Digest,
     };
+
+    #[test]
+    fn patch_hash_fills_linker_aligned_tail_with_erased_flash() {
+        let body = [0x11, 0x22, 0x33];
+        let mut image = vec![0u8; IMAGE_HEADER_LEN];
+        image[CODE_AREA_LEN_OFF..CODE_AREA_LEN_OFF + 4].copy_from_slice(&4u32.to_le_bytes());
+        image.extend_from_slice(&body);
+
+        patch_header(&mut image, 0, &body).unwrap();
+
+        let mut expected_body = body.to_vec();
+        expected_body.push(0xFF);
+        assert_eq!(
+            &image[CODE_AREA_HASH_OFF..CODE_AREA_HASH_OFF + HASH_LEN],
+            &sha256(&expected_body)
+        );
+    }
 
     fn sha256(b: &[u8]) -> [u8; HASH_LEN] {
         let mut h = sha2::Sha256::new();
