@@ -137,7 +137,7 @@ pub fn plan_app_flash(input: &[u8], chip: Chip, opts: &ImagePlanOptions) -> Resu
         let (image, addr, burn_size, source) = fwpkg_to_app_image(input, opts)?;
         (image, Some(addr), Some(burn_size), Some(source))
     } else if input.starts_with(ELF_MAGIC) {
-        match headered_elf_to_image(input) {
+        match crate::headered_elf_to_app_image(input) {
             Ok(image) => (image, None, None, None),
             Err(Error::Elf(msg)) if msg.contains("no `.boot_header` section found") => (
                 build_app_image_from_input(input, &opts.pack)?,
@@ -178,6 +178,7 @@ fn build_plan_from_image(
     chip: Chip,
     app_addr: Option<u32>,
 ) -> Result<FlashPlan> {
+    let image_bytes = crate::pad_image_to_code_area_len(image_bytes)?;
     if image_bytes.len() < IMAGE_HEADER_LEN {
         return Err(Error::InvalidFwpkg(format!(
             "app image is {} bytes, smaller than header length {IMAGE_HEADER_LEN}",
@@ -317,26 +318,6 @@ fn partition_info(bin: &FwpkgBinInfo) -> FwpkgPartitionInfo {
     }
 }
 
-#[cfg(feature = "elf")]
-fn headered_elf_to_image(input: &[u8]) -> Result<Vec<u8>> {
-    let patched = crate::patch::patch_hash(input)?;
-    let (hdr_off, body) = crate::patch::locate_elf(&patched)?;
-    let header = patched
-        .get(hdr_off..hdr_off + IMAGE_HEADER_LEN)
-        .ok_or_else(|| Error::Elf(".boot_header section truncated in file".to_string()))?;
-    let mut image = Vec::with_capacity(IMAGE_HEADER_LEN + body.len());
-    image.extend_from_slice(header);
-    image.extend_from_slice(&body);
-    Ok(image)
-}
-
-#[cfg(not(feature = "elf"))]
-fn headered_elf_to_image(_input: &[u8]) -> Result<Vec<u8>> {
-    Err(Error::Elf(
-        "input is ELF but crate built without `elf` feature".into(),
-    ))
-}
-
 fn read_u32(buf: &[u8], offset: usize) -> Result<u32> {
     let bytes = buf
         .get(offset..offset + 4)
@@ -367,6 +348,30 @@ mod tests {
         let plan = plan_app_flash(&image, Chip::Ws63, &ImagePlanOptions::default()).unwrap();
         assert_ne!(plan.code_area_hash, [0; HASH_LEN]);
         assert_eq!(plan.code_area_len, 4);
+    }
+
+    #[test]
+    fn headered_bin_materializes_linker_aligned_erased_tail() {
+        use sha2::Digest;
+
+        let body = [0x11, 0x22, 0x33];
+        let mut image = build_app_image(&body, &ImageOptions::default()).unwrap();
+        image[CODE_AREA_LEN_OFF..CODE_AREA_LEN_OFF + 4].copy_from_slice(&4u32.to_le_bytes());
+        image[CODE_AREA_HASH_OFF..CODE_AREA_HASH_OFF + HASH_LEN].fill(0);
+
+        let plan = plan_app_flash(&image, Chip::Ws63, &ImagePlanOptions::default()).unwrap();
+
+        assert_eq!(plan.code_area_len, 4);
+        assert_eq!(plan.image_bytes.len(), IMAGE_HEADER_LEN + 4);
+        assert_eq!(plan.image_bytes.last(), Some(&0xFF));
+        assert_eq!(plan.image_len, (IMAGE_HEADER_LEN + 4) as u32);
+        assert_eq!(plan.erase_range.len, plan.image_len);
+        assert_eq!(plan.write_chunks[0].len, plan.image_len);
+
+        let mut expected = body.to_vec();
+        expected.push(0xFF);
+        let expected_hash: [u8; HASH_LEN] = sha2::Sha256::digest(&expected).into();
+        assert_eq!(plan.code_area_hash, expected_hash);
     }
 
     #[test]

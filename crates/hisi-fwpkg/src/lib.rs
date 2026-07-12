@@ -115,7 +115,7 @@ pub struct PackOptions {
 const ELF_MAGIC: &[u8] = &[0x7F, b'E', b'L', b'F'];
 
 #[cfg(feature = "elf")]
-fn headered_elf_to_app_image(input: &[u8]) -> Result<Vec<u8>> {
+pub(crate) fn headered_elf_to_app_image(input: &[u8]) -> Result<Vec<u8>> {
     let patched = patch_hash(input)?;
     let (hdr_off, body) = patch::locate_elf(&patched)?;
     let header = patched
@@ -124,14 +124,43 @@ fn headered_elf_to_app_image(input: &[u8]) -> Result<Vec<u8>> {
     let mut image = Vec::with_capacity(IMAGE_HEADER_LEN + body.len());
     image.extend_from_slice(header);
     image.extend_from_slice(&body);
-    Ok(image)
+    pad_image_to_code_area_len(image)
 }
 
 #[cfg(not(feature = "elf"))]
-fn headered_elf_to_app_image(_input: &[u8]) -> Result<Vec<u8>> {
+pub(crate) fn headered_elf_to_app_image(_input: &[u8]) -> Result<Vec<u8>> {
     Err(Error::Elf(
         "input is ELF but crate built without `elf` feature".into(),
     ))
+}
+
+/// Materialize any linker-aligned verified tail as erased flash bytes.
+///
+/// Flashboot hashes `code_area_len` contiguous bytes even when the ELF's final
+/// file-backed segment ends before that aligned boundary. Every image-producing
+/// path must therefore write the missing tail as `0xFF`, not merely include it
+/// in the patched hash.
+pub(crate) fn pad_image_to_code_area_len(mut image: Vec<u8>) -> Result<Vec<u8>> {
+    if image.len() < IMAGE_HEADER_LEN {
+        return Err(Error::OutOfRange(format!(
+            "app image is {} bytes, smaller than header length {IMAGE_HEADER_LEN}",
+            image.len()
+        )));
+    }
+    let code_area_len = u32::from_le_bytes(
+        image[image::CODE_AREA_LEN_OFF..image::CODE_AREA_LEN_OFF + 4]
+            .try_into()
+            .expect("fixed-size header field"),
+    ) as usize;
+    if code_area_len != 0 {
+        let required_len = IMAGE_HEADER_LEN
+            .checked_add(code_area_len)
+            .ok_or_else(|| Error::OutOfRange("verified image length overflows usize".into()))?;
+        if image.len() < required_len {
+            image.resize(required_len, 0xFF);
+        }
+    }
+    Ok(image)
 }
 
 /// Detect whether `input` is an ELF (by magic) and flatten it; otherwise treat
@@ -187,7 +216,7 @@ pub fn input_to_app_image(input: &[u8], opts: &PackOptions) -> Result<Vec<u8>> {
             Err(err) => Err(err),
         }
     } else if is_headered_app_image(input) {
-        patch_hash(input)
+        pad_image_to_code_area_len(patch_hash(input)?)
     } else {
         build_app_image_from_input(input, opts)
     }

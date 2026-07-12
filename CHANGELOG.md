@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Materialize linker-aligned verified tails as `0xFF` in every image-producing
+  path, so FlashPlan image length, erase range, write chunks, and hash all cover
+  the same contiguous bytes flashboot verifies.
+
 ## 0.3.1 — 2026-07-12
 
 ### Fixed
