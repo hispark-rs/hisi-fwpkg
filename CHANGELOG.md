@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.1 — 2026-07-12
+
+### Fixed
+
+- Detect an input that already contains a valid HiSilicon application header
+  and reuse it instead of wrapping it in a second header during image/pack
+  planning.
+- Treat linker-aligned bytes after the final file-backed segment as erased
+  `0xFF` when `code_area_len` covers them. `FlashPlan` and `patch-hash` now hash
+  the same contiguous body flashboot reads, including the padded tail.
+
 ## 0.3.0 — 2026-07-09
 
 ### Added
