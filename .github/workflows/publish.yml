@@ -19,6 +19,12 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
+      - name: Lockfile preflight
+        run: |
+          set -euo pipefail
+          cargo generate-lockfile --locked
+          git ls-files --error-unmatch Cargo.lock >/dev/null
+          git diff --exit-code -- Cargo.lock
       # The lib must be published (and indexed) before the cli, which depends on
       # it by version. Publish in order, retry the cli while crates.io indexes
       # the new lib version, and treat "already uploaded" as success (idempotent).
@@ -28,9 +34,14 @@ jobs:
           DRY: ${{ (github.event_name == 'workflow_dispatch' && inputs.dry_run) && '--dry-run' || '' }}
         run: |
           set -euo pipefail
+          if [ -n "$DRY" ]; then
+            cargo publish -p hisi-fwpkg --locked --dry-run
+            cargo check -p hisi-fwpkg-cli --locked
+            exit 0
+          fi
           pub() {  # $1 = crate name
             for i in 1 2 3 4 5 6; do
-              if cargo publish -p "$1" $DRY 2>&1 | tee /tmp/pub.log; then return 0; fi
+              if cargo publish -p "$1" --locked 2>&1 | tee /tmp/pub.log; then return 0; fi
               if grep -qiE 'already (exists|been uploaded|uploaded)|is already uploaded' /tmp/pub.log; then
                 echo "$1: already on crates.io — skipping."; return 0
               fi
@@ -42,5 +53,5 @@ jobs:
             return 1
           }
           pub hisi-fwpkg
-          if [ -z "$DRY" ]; then sleep 30; fi   # let the new lib version index before the cli
+          sleep 30   # let the new lib version index before the cli
           pub hisi-fwpkg-cli
