@@ -19,10 +19,15 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
+      - name: Verify release source before publishing
+        run: |
+          cargo fmt --all -- --check
+          cargo clippy --locked --workspace --all-targets -- -D warnings
+          cargo test --locked --workspace
       - name: Lockfile preflight
         run: |
           set -euo pipefail
-          cargo generate-lockfile --locked
+          cargo metadata --locked --format-version 1 >/dev/null
           git ls-files --error-unmatch Cargo.lock >/dev/null
           git diff --exit-code -- Cargo.lock
       # The lib must be published (and indexed) before the cli, which depends on

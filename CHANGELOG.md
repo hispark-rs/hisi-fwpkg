@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.3 - 2026-09-07
+
+### Fixed
+
+- Publish the load-address flattening fix: every ELF image path places PT_LOAD
+  payloads at their physical flash address, including RAM-resident initialized
+  data, rather than using runtime addresses or file layout. Gaps remain erased.
+- This fix was previously present on main after the 0.3.2 tag. A locally rebuilt
+  binary still reporting 0.3.2 therefore did not match the public registry tool.
+  Release consumers must pin 0.3.3 and reverify ELF-to-image equivalence.
+
 ## 0.3.2 — 2026-07-12
 
 ### Fixed
