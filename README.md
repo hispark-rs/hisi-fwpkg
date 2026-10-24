@@ -19,6 +19,34 @@ ELF / .bin ──▶ flatten (objcopy) ──▶ 0x300 image header + body ─�
 
 ## CLI
 
+### WS53（实验性 LoaderBoot 检查与应用替换规划）
+
+新增 `ws53::inspect_loader` 检查 WS53 SDK 的 28 KiB LoaderBoot 下载包：
+`0x80` 根头、`0x100` key 头、`0x200` code-info 和正文 SHA-256。
+可运行 `cargo run -p hisi-fwpkg --example inspect_ws53_loader -- 包文件`。
+它只检查格式与完整性，不验证签名、芯片身份，也不访问硬件。
+来源为 `fbb_ws53` 提交 `163d9150`；实际传输由 hisiflash 的 WS53 模块负责。
+
+WS53 组合镜像包含现有控制核和应用核；不能使用下方 WS63 的地址和默认参数
+打包烧录。新增 `ws53::plan_unsigned_application` 根据完整4MiB备份规划应用替换：
+检查分区、组合正文哈希、明文/非压缩条件；保留控制核、应用占位头、校准/NV，
+只输出变化的完整4KiB扇区和对应原始恢复内容，组合头最后写入。
+当前限定已观察布局，入口`0x45d300`，不推断其他WS53板型。
+
+```sh
+cargo run -p hisi-fwpkg --example plan_ws53_application -- 原始备份.bin 已验证Flash链接应用.bin 新输出目录
+```
+
+规划不访问设备、不验证ELF布局、不生成有效签名；调用方必须先只读核实安全启动
+已关闭，不能通过修改eFuse来满足条件。旧签名保留但更换正文/摘要后不再有效，
+不能将该计划用于要求签名的板卡。RAM ELF不能直接当作Flash应用。
+2026-10-24 已在已确认安全验证关闭的 A 板上，用本规划器生成的三个扇区，
+经 hisiflash 完成 Rust 应用烧录、整片回读及串口/物理复位启动；TIMER0 驱动
+MIO17 的32次10ms翻转经DSLogic和同ELF QEMU对照通过。这个实测结论仅适用于
+已核对的板卡/启动布局，不能外推到其他WS53板型或签名策略。
+断电冷启动及本次应用替换后的原厂恢复仍未验收。普通WS63/BS2X CLI及默认
+地址保持不变。本模块不包含、发布或依赖私有整片备份；单元测试使用合成数据。
+
 ```bash
 cargo install --path crates/hisi-fwpkg-cli      # installs `hisi-fwpkg`
 
