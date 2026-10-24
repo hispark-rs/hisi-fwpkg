@@ -43,6 +43,7 @@ pub mod error;
 pub mod fwpkg;
 pub mod image;
 pub mod plan;
+pub mod ws53;
 
 #[cfg(feature = "elf")]
 pub mod elf;
